@@ -13,8 +13,8 @@ CookieAuthFile /usr/local/var/run/tor/control.authcookie
 Log notice file /usr/local/var/log/tor/log
 
 ClientOnly 1
-TransPort 9051
-DNSPort   9061
+SocksPort 9050
+DNSPort 9061
 
 VirtualAddrNetwork 10.66.0.0/255.255.0.0
 VirtualAddrNetworkIPv6 fd00::/8

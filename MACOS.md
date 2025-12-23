@@ -35,13 +35,16 @@ sudo perl nipe.pl install
 
 ## How It Works on macOS
 
-### Packet Filter (pfctl)
+### System Proxy Configuration
 
-Unlike Linux which uses iptables, macOS uses pfctl (Packet Filter Control) for firewall and traffic routing:
+Unlike Linux which uses iptables for transparent proxying, macOS uses system-wide proxy settings:
 
-- Nipe creates a temporary pf configuration file at `/tmp/nipe-pf.conf`
-- The configuration routes all non-local traffic through Tor
-- When you stop Nipe, pfctl is disabled and the configuration is removed
+- Nipe configures macOS system preferences to use Tor's SOCKS proxy (port 9050)
+- DNS is configured to use Tor's DNS port (9061) via localhost
+- The active network service (Wi-Fi, Ethernet, etc.) is automatically detected and configured
+- When you stop Nipe, proxy settings are disabled and DNS is reset to automatic
+
+**Important**: This approach routes traffic at the system level, not at the packet filter level. Most applications will respect these settings, but some may bypass them.
 
 ### Tor Service Management
 
@@ -58,14 +61,14 @@ brew services stop tor
 brew services list | grep tor
 ```
 
-### Network Interfaces
+### Network Services
 
-The default network interface is set to `en0`. If you're using a different interface (e.g., `en1` for Wi-Fi on some Macs), you may need to modify `.configs/darwin-torrc` or the pfctl rules in `lib/Nipe/Component/Engine/Start.pm`.
+Nipe automatically detects the active network service (Wi-Fi, Ethernet, USB Ethernet, etc.) and configures it to use Tor's SOCKS proxy.
 
-To check your active network interface:
+To check your network services:
 
 ```bash
-ifconfig | grep -E "^(en|wl)"
+networksetup -listallnetworkservices
 ```
 
 ## Usage
@@ -114,19 +117,20 @@ Make sure you're running Nipe with sudo:
 sudo perl nipe.pl start
 ```
 
-### pfctl Errors
+### Proxy Settings Not Working
 
-If pfctl fails to load rules, check if there are existing pf rules:
+If the proxy settings aren't being applied:
 
 ```bash
-# Show current pf rules
-sudo pfctl -s rules
+# Check current SOCKS proxy settings
+networksetup -getsocksfirewallproxy Wi-Fi
 
-# Disable pf
-sudo pfctl -d
+# Manually enable SOCKS proxy
+networksetup -setsocksfirewallproxy Wi-Fi 127.0.0.1 9050
+networksetup -setsocksfirewallproxystate Wi-Fi on
 
-# Try starting Nipe again
-sudo perl nipe.pl start
+# Verify DNS settings
+networksetup -getdnsservers Wi-Fi
 ```
 
 ### Tor Not Starting
@@ -147,11 +151,15 @@ sudo killall tor
 sudo perl nipe.pl restart
 ```
 
-### Network Interface Issues
+### Some Applications Bypass the Proxy
 
-If traffic isn't being routed correctly, you may need to change the network interface in the pfctl rules.
+Some applications may not respect system proxy settings and could bypass Tor:
 
-Edit the pf configuration by modifying `lib/Nipe/Component/Engine/Start.pm` and change `ext_if = "en0"` to your active interface.
+- Applications using custom network stacks (some VPN clients, browsers with built-in proxies)
+- Applications using direct socket connections
+- Command-line tools that don't check system proxy settings
+
+For these applications, you may need to configure them individually to use SOCKS proxy at `127.0.0.1:9050`.
 
 ### IPv6 Issues
 
@@ -171,20 +179,26 @@ networksetup -setv6automatic Wi-Fi
 
 ### Known Issues
 
-1. **VPN Compatibility**: Nipe may conflict with VPN software. It's recommended to disconnect from VPNs before starting Nipe.
+1. **Application-Level Bypass**: Unlike Linux's iptables approach, macOS system proxy settings can be bypassed by applications that don't respect them. This is a fundamental limitation of the proxy-based approach.
 
-2. **System Integrity Protection (SIP)**: Some macOS security features may interfere with pfctl. In most cases, running with sudo is sufficient.
+2. **VPN Compatibility**: Nipe may conflict with VPN software. It's recommended to disconnect from VPNs before starting Nipe.
 
-3. **Network Interface Detection**: Nipe assumes `en0` as the primary interface. If your Mac uses a different interface, you may need to manually configure it.
+3. **Browser Extensions**: Some browser extensions may override system proxy settings. Disable proxy extensions when using Nipe.
 
-4. **DNS Leaks**: Always verify your connection using the status command or external services like https://check.torproject.org
+4. **Command-Line Tools**: Many CLI tools (curl, wget, etc.) don't automatically use system proxy settings. You may need to set environment variables:
+   ```bash
+   export ALL_PROXY=socks5://127.0.0.1:9050
+   export all_proxy=socks5://127.0.0.1:9050
+   ```
+
+5. **DNS Leaks**: Always verify your connection using the status command or external services like https://check.torproject.org
 
 ## Files and Directories
 
-- **Configuration**: `.configs/darwin-torrc` - Tor configuration for macOS
-- **PF Rules**: `/tmp/nipe-pf.conf` - Temporary packet filter configuration
-- **Tor Data**: `/usr/local/var/lib/tor` - Tor data directory
+- **Configuration**: `.configs/darwin-torrc` - Tor configuration for macOS (SOCKS on port 9050, DNS on port 9061)
+- **Tor Data**: `/usr/local/var/lib/tor` - Tor data directory (Homebrew installation)
 - **Tor Logs**: `/usr/local/var/log/tor/log` - Tor log file
+- **System Proxy**: Configured via `networksetup` command (no configuration file)
 
 ## Security Considerations
 

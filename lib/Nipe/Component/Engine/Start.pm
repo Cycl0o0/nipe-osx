@@ -5,7 +5,7 @@ package Nipe::Component::Engine::Start {
 	use Nipe::Component::Utils::Status;
     use Nipe::Component::Engine::Stop;
 
-	our $VERSION = '0.0.9';
+	our $VERSION = '0.1.0';
 
 	sub new {
         my $stop          = Nipe::Component::Engine::Stop -> new();
@@ -19,10 +19,10 @@ package Nipe::Component::Engine::Start {
 
 		if ($device{distribution} eq 'darwin') {
 			# macOS: Use Homebrew services or launchctl
-			if (-e '/usr/local/bin/brew') {
-				$start_tor = 'brew services start tor';
+			if (-e '/usr/local/bin/brew' || -e '/opt/homebrew/bin/brew') {
+				$start_tor = 'brew services start tor 2>&1';
 			} else {
-				$start_tor = 'tor -f .configs/darwin-torrc &';
+				$start_tor = 'tor -f .configs/darwin-torrc > /dev/null 2>&1 &';
 			}
 		}
 		elsif ($device{distribution} eq 'void') {
@@ -32,62 +32,27 @@ package Nipe::Component::Engine::Start {
 			$start_tor = '/etc/init.d/tor start > /dev/null';
 		}
 
-		system "tor -f .configs/$device{distribution}-torrc > /dev/null &";
-		sleep 2;  # Give Tor time to start
+		# Start Tor
+		system "tor -f .configs/$device{distribution}-torrc > /dev/null 2>&1 &";
+		sleep 3;  # Give Tor time to start
 		system $start_tor;
+		sleep 2;  # Additional time for Tor to initialize
 
-		# macOS: Use pfctl instead of iptables
+		# macOS: Configure system proxy settings for Tor SOCKS
 		if ($device{distribution} eq 'darwin') {
-			my $pf_conf = "/tmp/nipe-pf.conf";
+			# Detect active network service
+			my $active_service = `networksetup -listallnetworkservices 2>/dev/null | grep -v '*' | head -1`;
+			chomp($active_service);
+			$active_service = 'Wi-Fi' unless $active_service;
 
-			# Create pf configuration file for macOS
-			open(my $fh, '>', $pf_conf) or die "Cannot create $pf_conf: $!";
-			print $fh <<'EOF';
-# Nipe macOS Packet Filter Rules
-# Redirect all traffic through Tor
+			# Enable SOCKS proxy
+			system "networksetup -setsocksfirewallproxy '$active_service' 127.0.0.1 9050 2>/dev/null";
+			system "networksetup -setsocksfirewallproxystate '$active_service' on 2>/dev/null";
 
-# Define interfaces and networks
-ext_if = "en0"
-tor_uid = "_tor"
-dns_port = "9061"
-trans_port = "9051"
-non_tor = "{ 127.0.0.0/8, 192.168.0.0/16, 172.16.0.0/12, 10.0.0.0/8, 169.254.0.0/16 }"
-non_tor6 = "{ ::1/128, fc00::/7, fe80::/10 }"
+			# Set DNS to use Tor's DNS port via localhost
+			system "networksetup -setdnsservers '$active_service' 127.0.0.1 2>/dev/null";
 
-# NAT rules for redirecting traffic to Tor
-nat on $ext_if inet proto tcp to !$non_tor -> 127.0.0.1 port $trans_port
-nat on $ext_if inet proto udp to any port 53 -> 127.0.0.1 port $dns_port
-nat on $ext_if inet proto tcp to any port 53 -> 127.0.0.1 port $dns_port
-
-# IPv6 NAT rules
-nat on $ext_if inet6 proto tcp to !$non_tor6 -> ::1 port $trans_port
-nat on $ext_if inet6 proto udp to any port 53 -> ::1 port $dns_port
-nat on $ext_if inet6 proto tcp to any port 53 -> ::1 port $dns_port
-
-# Filter rules
-# Allow established connections
-pass out proto tcp all flags S/SA keep state
-pass out proto tcp all flags R/R
-pass out proto tcp all flags A/A
-
-# Allow Tor user traffic
-pass out proto { tcp udp } user $tor_uid
-
-# Allow local network traffic
-pass out quick to $non_tor
-pass out quick inet6 to $non_tor6
-
-# Block UDP and ICMP (except from Tor)
-block out proto udp
-block out proto icmp
-block out proto icmp6
-EOF
-			close($fh);
-
-			# Load the pf rules
-			system "pfctl -d 2>/dev/null";  # Disable pf first
-			system "pfctl -f $pf_conf 2>/dev/null";  # Load rules
-			system "pfctl -e 2>/dev/null";  # Enable pf
+			sleep 3;  # Wait for settings to apply
 
 			my $status = Nipe::Component::Utils::Status -> new();
 

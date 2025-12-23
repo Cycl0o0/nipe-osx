@@ -3,7 +3,7 @@ package Nipe::Component::Engine::Stop {
 	use warnings;
 	use Nipe::Component::Utils::Device;
 
-	our $VERSION = '0.0.5';
+	our $VERSION = '0.0.6';
 
 	sub new {
 		my %device  = Nipe::Component::Utils::Device -> new();
@@ -11,13 +11,20 @@ package Nipe::Component::Engine::Stop {
 		my $stop_tor = 'systemctl stop tor';
 
 		if ($device{distribution} eq 'darwin') {
-			# macOS: Disable pfctl and stop Tor
-			system "pfctl -d 2>/dev/null";  # Disable packet filter
-			system "rm -f /tmp/nipe-pf.conf 2>/dev/null";  # Remove pf config
+			# macOS: Disable SOCKS proxy and restore DNS
+			my $active_service = `networksetup -listallnetworkservices 2>/dev/null | grep -v '*' | head -1`;
+			chomp($active_service);
+			$active_service = 'Wi-Fi' unless $active_service;
+
+			# Disable SOCKS proxy
+			system "networksetup -setsocksfirewallproxystate '$active_service' off 2>/dev/null";
+
+			# Reset DNS to automatic (DHCP/empty)
+			system "networksetup -setdnsservers '$active_service' Empty 2>/dev/null";
 
 			# Stop Tor service
-			if (-e '/usr/local/bin/brew') {
-				$stop_tor = 'brew services stop tor';
+			if (-e '/usr/local/bin/brew' || -e '/opt/homebrew/bin/brew') {
+				$stop_tor = 'brew services stop tor 2>&1';
 			} else {
 				$stop_tor = 'killall -9 tor 2>/dev/null';
 			}

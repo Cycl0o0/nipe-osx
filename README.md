@@ -29,7 +29,7 @@ Nipe supports both IPv4 and IPv6 traffic routing through the Tor network. Only t
 
 **Platform Support:**
 - **Linux**: Nipe uses iptables and ip6tables to apply redirection rules for IPv4 and IPv6 traffic respectively. If you may have rules applied to these utilities, during the start process, conflicts may occur. When you stop running the Nipe services, all departure rules are removed, not differentiating between the already existing ones and the Nipe rules.
-- **macOS**: Nipe uses pfctl (Packet Filter Control) to route traffic through Tor. The pfctl rules are stored in `/tmp/nipe-pf.conf` during operation and removed when Nipe is stopped.
+- **macOS**: Nipe configures system-wide SOCKS proxy settings to route traffic through Tor. This is done using the `networksetup` command to configure the active network service. When you stop Nipe, proxy settings are disabled and DNS is reset to automatic. **Note**: Some applications may bypass system proxy settings.
 
 ---
 
@@ -64,8 +64,9 @@ Nipe supports both IPv4 and IPv6 traffic routing through the Tor network. Only t
   # Nipe must be run as root
   $ sudo perl nipe.pl install
 
-  # Note: On macOS, you may need to disable System Integrity Protection (SIP)
-  # or allow pfctl to be used by the script. Run with sudo to ensure proper permissions.
+  # Note: On macOS, Nipe configures system proxy settings via networksetup.
+  # This requires administrative privileges. Some applications may not respect
+  # system proxy settings and could bypass Tor.
 ```
 ---
 
